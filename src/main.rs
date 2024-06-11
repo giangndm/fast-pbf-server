@@ -1,22 +1,12 @@
 use std::sync::Arc;
 
-use geo::GeoIndex;
-use poem::{
-    get, handler,
-    listener::TcpListener,
-    middleware::Tracing,
-    web::{Data, Json, Query},
-    EndpointExt, Route, Server,
-};
+use geo::{GeoIndex, WayInfo};
+use poem::{get, listener::TcpListener, middleware::Tracing, EndpointExt, Route, Server};
 
 use clap::Parser;
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-struct QueryParams {
-    lat: f32,
-    lon: f32,
-}
+mod api_get_id;
+mod api_query;
 
 /// Pbf query server
 #[derive(Parser, Debug)]
@@ -44,27 +34,7 @@ struct Response<T> {
 
 #[derive(serde::Serialize)]
 struct AddressResponse {
-    address: String,
-}
-
-#[handler]
-fn query(
-    data: Data<&Arc<GeoIndex>>,
-    Query(query): Query<QueryParams>,
-) -> Json<Response<AddressResponse>> {
-    if let Some(address) = data.0.find(query.lat, query.lon) {
-        Json(Response {
-            success: true,
-            data: Some(AddressResponse { address }),
-            error: None,
-        })
-    } else {
-        Json(Response {
-            success: false,
-            data: None,
-            error: Some("No address found".to_string()),
-        })
-    }
+    ways: Vec<WayInfo>,
 }
 
 #[tokio::main]
@@ -105,7 +75,8 @@ async fn main() -> Result<(), std::io::Error> {
     };
 
     let app = Route::new()
-        .at("/query", get(query))
+        .at("/query", get(api_query::query))
+        .at("/get", get(api_get_id::get_by_id))
         .data(Arc::new(geo))
         .with(Tracing);
     Server::new(TcpListener::bind("0.0.0.0:3000"))
