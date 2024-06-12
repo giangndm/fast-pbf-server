@@ -283,8 +283,7 @@ impl GeoIndex {
                         };
                         (LocationCategory::Place, way_type)
                     } else {
-                        // log::info!("missing data {:?}", way);
-                        // panic!("unknown way type")
+                        log::debug!("missing data {:?}", way);
                         (LocationCategory::Unknown, WayType::Unknown)
                     };
                     let info = AddressInfo {
