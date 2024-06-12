@@ -9,15 +9,10 @@ use strum::EnumString;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum GeometryType {
-    #[serde(rename = "ST_Empty")]
     Empty,
-    #[serde(rename = "ST_Point")]
     Point,
-    #[serde(rename = "ST_LineString")]
     Line,
-    #[serde(rename = "ST_Polygon")]
     Polygon,
-    #[serde(rename = "ST_MultiPolygon")]
     MultiPolygon,
 }
 
@@ -33,125 +28,84 @@ pub enum LocationType {
 pub enum LocationCategory {
     #[serde(rename = "highway")]
     Highway,
-    #[serde(rename = "place")]
-    Place,
-    #[serde(rename = "amenity")]
-    Amenity,
-    #[serde(rename = "building")]
-    Building,
-    #[serde(rename = "waterway")]
-    Waterway,
     #[serde(rename = "unknown")]
     Unknown,
 }
 
 #[derive(Serialize, Deserialize, Clone, EnumString, Debug)]
 #[strum(serialize_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+#[repr(u8)]
 pub enum WayType {
     //highway
-    Primary,
-    Footway,
-    Tertiary,
     Service,
-    Residential,
-    Secondary,
+    Cycleway,
     Path,
-    Potorway,
-    Trunk,
-    Unclassified,
+    Footway,
+    Steps,
+    Bridleway,
     MotorwayLink,
-    Trunklink,
     PrimaryLink,
+    TrunkLink,
     SecondaryLink,
     TertiaryLink,
-    LivingStreet,
-    Pedestrian,
+    Residential,
     Track,
-    BusGuideway,
-    Escape,
-    Raceway,
-    Road,
-    BusRoad,
-    Busway,
-    BridleWay,
-    Steps,
-    Corridor,
-    ViaFerrata,
-    SideWalk,
+    Unclassified,
+    Tertiary,
+    Secondary,
+    Primary,
+    LivingStreet,
+    Trunk,
     Motorway,
-    Corssing,
-    Services,
-    Archipelago,
-    Cycleway,
+    Pedestrian,
+    Road,
     Construction,
-    Quarter,
-    TrunkLink,
-    Proposed,
-    IsolatedDwelling,
-    Neighbourhood,
-    RestArea,
-    SpeedCamera,
-    Stop,
-    StreetLamp,
-    Abandoned,
-
-    //place
-    Islet,
-    Island,
-    Hotel,
-    Locality,
-    Square,
-    Plot,
-    Village,
-    Hamlet,
-    Town,
-    MotorcycleParking,
-    Cafe,
-    Restaurant,
-    Parking,
-    Fuel,
-    ResearchInstitute,
-    FoodCourt,
-    Bank,
-    FerryTerminal,
-    Dentist,
-    PostOffice,
-    Kindergarten,
-    Toilets,
-    Marketplace,
-
-    //amenity
-    School,
-    Clinic,
-    GraveYard,
-    Townhall,
-    PlaceOfWorship,
-    Hospital,
-    University,
-    College,
-    Cinema,
-    Police,
-
-    //building
-    Church,
-    Office,
-    House,
-
-    //waterway
-    River,
 
     //
     Unknown,
-    Yes, //TODO check it
+}
+
+impl WayType {
+    pub fn rank(&self) -> u8 {
+        match &self {
+            Self::Service => 27,
+            Self::Cycleway => 27,
+            Self::Path => 27,
+            Self::Footway => 27,
+            Self::Steps => 27,
+            Self::Bridleway => 27,
+            Self::MotorwayLink => 27,
+            Self::PrimaryLink => 27,
+            Self::TrunkLink => 27,
+            Self::SecondaryLink => 27,
+            Self::TertiaryLink => 27,
+            Self::Residential => 26,
+            Self::Track => 26,
+            Self::Unclassified => 26,
+            Self::Tertiary => 26,
+            Self::Secondary => 26,
+            Self::Primary => 26,
+            Self::LivingStreet => 26,
+            Self::Trunk => 26,
+            Self::Motorway => 26,
+            Self::Pedestrian => 26,
+            Self::Road => 26,
+            Self::Construction => 26,
+            _ => 28,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LocationExtraTask {
+    #[serde(skip_serializing_if = "Option::is_none")]
     oneway: Option<String>,
-    #[serde(rename = "maxspeed")]
+    #[serde(rename = "maxspeed", skip_serializing_if = "Option::is_none")]
     max_speed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     lanes: Option<u8>,
-    #[serde(rename = "turn:lanes")]
+    #[serde(rename = "turn:lanes", skip_serializing_if = "Option::is_none")]
     turn_lanes: Option<String>,
 }
 
@@ -164,11 +118,14 @@ pub struct GeometryInfo {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AddressInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
     place_id: Option<u32>,
     osm_id: u32,
     osm_type: LocationType,
     name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     lat: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     lon: Option<String>,
     category: LocationCategory,
     #[serde(rename = "type")]
@@ -258,30 +215,6 @@ impl GeoIndex {
                             }
                         };
                         (LocationCategory::Highway, way_type)
-                    } else if let Some(place) = way.tags.get("place") {
-                        let way_type = match WayType::try_from(place.as_str()) {
-                            Ok(t) => t,
-                            Err(e) => {
-                                if !missing_way_type.contains_key(place.as_str()) {
-                                    missing_way_type.insert(place.to_string(), ());
-                                    log::error!("unknown type place {place}");
-                                }
-                                WayType::Unknown
-                            }
-                        };
-                        (LocationCategory::Place, way_type)
-                    } else if let Some(amenity) = way.tags.get("amenity") {
-                        let way_type = match WayType::try_from(amenity.as_str()) {
-                            Ok(t) => t,
-                            Err(e) => {
-                                if !missing_way_type.contains_key(amenity.as_str()) {
-                                    missing_way_type.insert(amenity.to_string(), ());
-                                    log::error!("unknown type amenity {amenity}");
-                                }
-                                WayType::Unknown
-                            }
-                        };
-                        (LocationCategory::Place, way_type)
                     } else {
                         log::debug!("missing data {:?}", way);
                         (LocationCategory::Unknown, WayType::Unknown)
@@ -337,13 +270,24 @@ impl GeoIndex {
             if !way_ids.contains(&line.data) {
                 way_ids.push(line.data);
                 if let Some(way) = self.ways.get(&line.data) {
-                    let mut way = way.clone();
-                    let point = line.geom().nearest_point(&[lat, lon]);
-                    way.lat = Some(point[0].to_string());
-                    way.lon = Some(point[1].to_string());
-                    ways.push(way);
-                    if ways.len() == 5 {
-                        break;
+                    if !matches!(
+                        way.geometry._type,
+                        GeometryType::Polygon | GeometryType::MultiPolygon
+                    ) && matches!(way.category, LocationCategory::Highway)
+                        && way._type.rank() <= 26
+                    {
+                        let point = line.geom().nearest_point(&[lat, lon]);
+                        let mut way = way.clone();
+                        way.lat = Some(point[0].to_string());
+                        way.lon = Some(point[1].to_string());
+                        if simple_distance([lat, lon], point) <= 0.006 {
+                            ways.push(way);
+                        } else {
+                            break;
+                        }
+                        if ways.len() == 5 {
+                            break;
+                        }
                     }
                 }
             }
@@ -371,4 +315,9 @@ impl From<&[NodeId]> for GeometryType {
             }
         }
     }
+}
+
+fn simple_distance(p1: [f32; 2], p2: [f32; 2]) -> f32 {
+    let dis = (p1[0] - p2[0]) * (p1[0] - p2[0]) + (p1[1] - p2[1]) * (p1[1] - p2[1]);
+    dis.sqrt()
 }
