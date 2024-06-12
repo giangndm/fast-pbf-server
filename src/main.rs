@@ -36,17 +36,18 @@ async fn main() -> Result<(), std::io::Error> {
                 Ok(file) => {
                     let start = std::time::Instant::now();
                     println!("load index from file");
-                    let geo: GeoIndex = bincode::deserialize_from(file).unwrap();
+                    // let geo: GeoIndex = bincode::deserialize_from(file).unwrap();
                     println!("Loaded index in {}ms", start.elapsed().as_millis());
-                    geo
+                    // geo
+                    todo!()
                 }
                 Err(_e) => {
                     println!("cannot load index => rebuild");
                     let mut geo = GeoIndex::new();
                     geo.build(&args.pbf);
                     // save geo to file
-                    std::fs::write(&path, bincode::serialize(&geo).unwrap())
-                        .expect("Unable to write file");
+                    // std::fs::write(&path, bincode::serialize(&geo).unwrap())
+                    //     .expect("Unable to write file");
                     geo
                 }
             }

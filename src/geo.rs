@@ -1,8 +1,5 @@
+use geo_index::rtree::{sort::HilbertSort, OwnedRTree, RTreeBuilder, RTreeIndex};
 use osmpbfreader::{NodeId, OsmObj};
-use rstar::{
-    primitives::{GeomWithData, Line},
-    RTree,
-};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Instant};
 use strum::EnumString;
@@ -118,38 +115,40 @@ pub struct GeometryInfo {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AddressInfo {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    place_id: Option<u32>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // place_id: Option<u32>,
     osm_id: u32,
     osm_type: LocationType,
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    lat: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    lon: Option<String>,
+    // name: String,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // lat: Option<String>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    // lon: Option<String>,
     category: LocationCategory,
     #[serde(rename = "type")]
     _type: WayType,
-    #[serde(rename = "extratags")]
-    extra_tags: LocationExtraTask,
+    // #[serde(rename = "extratags")]
+    // extra_tags: LocationExtraTask,
     geometry: GeometryInfo,
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct GeoIndex {
-    tree: RTree<GeomWithData<Line<[f32; 2]>, u32>>,
+    tree: Option<OwnedRTree<f32>>,
+    lines: HashMap<u32, u32>,
     ways: HashMap<u32, AddressInfo>,
 }
 
 impl GeoIndex {
     pub fn new() -> GeoIndex {
         GeoIndex {
-            tree: RTree::new(),
+            tree: None,
+            lines: HashMap::new(),
             ways: HashMap::new(),
         }
     }
 
     pub fn build(&mut self, path: &str) {
+        log::info!("size {}", std::mem::size_of::<AddressInfo>());
         let mut missing_way_type: HashMap<String, ()> = HashMap::new();
         let start = Instant::now();
         let mut pbf = osmpbfreader::OsmPbfReader::new(std::fs::File::open(path).unwrap());
@@ -185,21 +184,12 @@ impl GeoIndex {
                             start.elapsed().as_millis()
                         );
                     }
-                    let mut points = vec![];
-                    let mut lines = vec![];
-                    let mut start_point = None;
+                    let mut points = Vec::with_capacity(way.nodes.len());
+                    assert!(way.nodes.len() > 0, "need have way nodes");
+                    lines_count += way.nodes.len() - 1;
                     for node in &way.nodes {
                         if let Some(node_point) = nodes.get(&(node.0)) {
                             points.push(*node_point);
-                            if let Some(start_point) = &mut start_point {
-                                let line = Line::new(*start_point, *node_point);
-                                lines_count += 1;
-                                self.tree.insert(GeomWithData::new(line, way.id.0 as u32));
-                                lines.push([*start_point, *node_point]);
-                                *start_point = *node_point;
-                            } else {
-                                start_point = Some(*node_point);
-                            }
                         }
                     }
                     let geometry = GeometryType::from(way.nodes.as_slice());
@@ -220,24 +210,24 @@ impl GeoIndex {
                         (LocationCategory::Unknown, WayType::Unknown)
                     };
                     let info = AddressInfo {
-                        place_id: None,
+                        // place_id: None,
                         osm_id: way.id.0 as u32,
                         osm_type: LocationType::Way,
-                        name: way
-                            .tags
-                            .get("name")
-                            .map(|n| n.to_string())
-                            .unwrap_or_else(|| "".to_string()),
-                        lat: None,
-                        lon: None,
+                        // name: way
+                        //     .tags
+                        //     .get("name")
+                        //     .map(|n| n.to_string())
+                        //     .unwrap_or_else(|| "".to_string()),
+                        // lat: None,
+                        // lon: None,
                         category,
                         _type: way_type,
-                        extra_tags: LocationExtraTask {
-                            oneway: way.tags.get("oneway").map(|w| w.to_string()),
-                            max_speed: way.tags.get("maxspeed").map(|w| w.to_string()),
-                            lanes: way.tags.get("lanes").and_then(|w| w.as_str().parse().ok()),
-                            turn_lanes: way.tags.get("turn:lanes").map(|w| w.to_string()),
-                        },
+                        // extra_tags: LocationExtraTask {
+                        //     oneway: way.tags.get("oneway").map(|w| w.to_string()),
+                        //     max_speed: way.tags.get("maxspeed").map(|w| w.to_string()),
+                        //     lanes: way.tags.get("lanes").and_then(|w| w.as_str().parse().ok()),
+                        //     turn_lanes: way.tags.get("turn:lanes").map(|w| w.to_string()),
+                        // },
                         geometry: GeometryInfo {
                             _type: geometry,
                             coordinates: points,
@@ -253,6 +243,22 @@ impl GeoIndex {
         }
         drop(nodes);
         drop(pbf);
+
+        let mut tree_builder = RTreeBuilder::new(lines_count);
+        for (way_id, way) in &self.ways {
+            let points = &way.geometry.coordinates;
+            for i in 1..points.len() {
+                let line_id = tree_builder.add(
+                    points[i][0].min(points[i - 1][0]),
+                    points[i][1].min(points[i - 1][1]),
+                    points[i][0].max(points[i - 1][0]),
+                    points[i][1].max(points[i - 1][1]),
+                );
+                self.lines.insert(line_id as u32, *way_id);
+            }
+        }
+        self.tree = Some(tree_builder.finish::<HilbertSort>());
+
         println!(
             "Loaded {} ways {} lines {} relations in {}ms",
             ways_count,
@@ -265,26 +271,28 @@ impl GeoIndex {
     pub fn find(&self, lat: f32, lon: f32) -> Option<Vec<AddressInfo>> {
         let mut way_ids = vec![];
         let mut ways = vec![];
-        let lines = self.tree.nearest_neighbor_iter(&[lat, lon]);
+        let tree = self.tree.as_ref()?;
+        let lines = tree.search(lat - 0.006, lon - 0.006, lat + 0.006, lon + 0.006);
         for line in lines {
-            if !way_ids.contains(&line.data) {
-                way_ids.push(line.data);
-                if let Some(way) = self.ways.get(&line.data) {
+            let way_id = self.lines.get(&(line as u32)).expect("");
+            if !way_ids.contains(&way_id) {
+                way_ids.push(way_id);
+                if let Some(way) = self.ways.get(&way_id) {
                     if !matches!(
                         way.geometry._type,
                         GeometryType::Polygon | GeometryType::MultiPolygon
                     ) && matches!(way.category, LocationCategory::Highway)
                         && way._type.rank() <= 26
                     {
-                        let point = line.geom().nearest_point(&[lat, lon]);
+                        // let point = line.geom().nearest_point(&[lat, lon]);
                         let mut way = way.clone();
-                        way.lat = Some(point[0].to_string());
-                        way.lon = Some(point[1].to_string());
-                        if simple_distance([lat, lon], point) <= 0.006 {
-                            ways.push(way);
-                        } else {
-                            break;
-                        }
+                        // way.lat = Some(point[0].to_string());
+                        // way.lon = Some(point[1].to_string());
+                        // if simple_distance([lat, lon], point) <= 0.006 {
+                        ways.push(way);
+                        // } else {
+                        //     break;
+                        // }
                         if ways.len() == 5 {
                             break;
                         }
