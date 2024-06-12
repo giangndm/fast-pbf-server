@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
-use geo::{GeoIndex, WayInfo};
+use geo::GeoIndex;
 use poem::{get, listener::TcpListener, middleware::Tracing, EndpointExt, Route, Server};
 
 use clap::Parser;
-
-mod api_get_id;
-mod api_query;
 
 /// Pbf query server
 #[derive(Parser, Debug)]
@@ -21,21 +18,8 @@ struct Args {
     pbf: String,
 }
 
+mod api;
 mod geo;
-
-#[derive(serde::Serialize)]
-struct Response<T> {
-    success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<T>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-struct AddressResponse {
-    ways: Vec<WayInfo>,
-}
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
@@ -75,10 +59,11 @@ async fn main() -> Result<(), std::io::Error> {
     };
 
     let app = Route::new()
-        .at("/query", get(api_query::query))
-        .at("/get", get(api_get_id::get_by_id))
+        .at("/reverse", get(api::reverse::handler))
+        .at("/get", get(api::get::handler))
         .data(Arc::new(geo))
         .with(Tracing);
+
     Server::new(TcpListener::bind("0.0.0.0:3000"))
         .name("Fast-pbf-server")
         .run(app)
