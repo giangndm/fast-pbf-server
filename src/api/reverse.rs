@@ -16,11 +16,12 @@ use super::{ErrorInfo, Response};
 struct QueryParams {
     lat: f32,
     lon: f32,
+    zoom: u8,
 }
 
 #[handler]
 pub fn handler(data: Data<&Arc<GeoIndex>>, Query(query): Query<QueryParams>) -> Json<Value> {
-    if let Some(ways) = data.0.find(query.lat, query.lon) {
+    if let Some(ways) = data.0.find(query.lat, query.lon, query.zoom) {
         Json(serde_json::to_value(ways).expect("Should convert to json"))
     } else {
         Json(

@@ -262,7 +262,25 @@ impl GeoIndex {
         );
     }
 
-    pub fn find(&self, lat: f32, lon: f32) -> Option<Vec<AddressInfo>> {
+    pub fn find(&self, lat: f32, lon: f32, zoom: u8) -> Option<Vec<AddressInfo>> {
+        let max_rank = match zoom {
+            0 | 1 | 2 => 2,
+            3 | 4 => 4,
+            5 => 8,
+            6 | 7 => 10,
+            8 | 9 => 12,
+            10 => 16,
+            11 => 17,
+            12 => 18,
+            13 => 19,
+            14 => 22,
+            15 => 25,
+            16 => 26,
+            17 => 27,
+            18 => 30,
+            _ => 27,
+        };
+
         let mut way_ids = vec![];
         let mut ways = vec![];
         let lines = self.tree.nearest_neighbor_iter(&[lat, lon]);
@@ -274,7 +292,7 @@ impl GeoIndex {
                         way.geometry._type,
                         GeometryType::Polygon | GeometryType::MultiPolygon
                     ) && matches!(way.category, LocationCategory::Highway)
-                        && way._type.rank() <= 26
+                        && way._type.rank() < max_rank
                     {
                         let point = line.geom().nearest_point(&[lat, lon]);
                         let mut way = way.clone();
